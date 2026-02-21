@@ -403,6 +403,19 @@ header p{font-size:.6rem;color:var(--muted);letter-spacing:.18em;text-transform:
 .admin-rules-lock:hover{background:rgba(255,68,102,.25);}
 .banned-tag{font-size:.5rem;background:rgba(255,68,102,.15);color:var(--red);border:1px solid rgba(255,68,102,.3);
   padding:1px 5px;border-radius:2px;margin-left:5px;}
+
+/* VIP styles */
+.vip-tag{font-size:.5rem;background:rgba(255,215,0,.18);color:var(--gold);border:1px solid rgba(255,215,0,.4);
+  padding:1px 6px;border-radius:2px;margin-left:5px;letter-spacing:.05em;}
+.lb-row.lb-vip{border-color:rgba(255,215,0,.35);background:rgba(255,215,0,.03);}
+.lb-row.lb-vip .lb-name{color:var(--gold);}
+.apr-btn-vip{background:rgba(255,215,0,.1);border-color:var(--gold);color:var(--gold);}
+.apr-btn-vip:hover{background:rgba(255,215,0,.25);}
+.apr-btn-unvip{background:rgba(168,85,247,.1);border-color:var(--purple);color:var(--purple);}
+.apr-btn-unvip:hover{background:rgba(168,85,247,.25);}
+.vip-notice{font-size:.65rem;color:var(--gold);background:rgba(255,215,0,.07);
+  border:1px solid rgba(255,215,0,.25);border-radius:3px;padding:8px 12px;margin-bottom:12px;
+  display:none;text-align:center;letter-spacing:.05em;}
 </style>
 </head>
 <body>
@@ -481,6 +494,7 @@ header p{font-size:.6rem;color:var(--muted);letter-spacing:.18em;text-transform:
 
 <!-- GAME PAGE -->
 <div id="page-game" class="page active">
+<div class="vip-notice" id="vip-notice">⭐ VIP СТАТУС АКТИВЕН — По-рядки item дропове!</div>
 <div class="game">
   <div class="center">
     <div style="text-align:center;margin-bottom:4px">
@@ -729,6 +743,7 @@ UPGRADES.forEach(u=>{G.upgrades[u.id]=0;});
 let PLAYER_ID = '';
 let PLAYER_NAME = '';
 let PLAYER_AVATAR = '🧑';
+let PLAYER_IS_VIP = false;
 let currentFilter = 'all';
 let currentModalInst = null;
 let sellCurrency = 'coins';
@@ -893,6 +908,13 @@ async function finishAuth(){
   if(stored&&stored.isAdmin){
     document.getElementById('admin-nav-btn').style.display='';
     loadAdminPlayers();
+  }
+  
+  // Check if VIP
+  const vipCheck=await fbGet('vip/'+PLAYER_ID);
+  if(vipCheck){
+    PLAYER_IS_VIP=true;
+    document.getElementById('vip-notice').style.display='block';
   }
   
   // Check if player is banned
@@ -1063,6 +1085,7 @@ async function syncPlayerData(){
     prestige:G.prestige,
     cps:G.cps,
     level:G.level,
+    isVip:PLAYER_IS_VIP,
     lastSeen:Date.now()
   }, true);
 }
@@ -1070,7 +1093,14 @@ async function syncPlayerData(){
 // ── ITEM DROPS ───────────────────────────────────────────
 function rollRarity(rebirths){
   const b=Math.min(rebirths*2,20);
-  const w={common:Math.max(55-b*1.5,20),rare:Math.min(28+b*.5,40),epic:Math.min(13+b*.7,28),legendary:Math.min(4+b*.3,12)};
+  // VIP gets significantly better drop rates
+  const vipBonus=PLAYER_IS_VIP?15:0;
+  const w={
+    common:Math.max(55-b*1.5-vipBonus*1.5,10),
+    rare:Math.min(28+b*.5+vipBonus*.5,40),
+    epic:Math.min(13+b*.7+vipBonus*.6,35),
+    legendary:Math.min(4+b*.3+vipBonus*.4,20)
+  };
   const total=Object.values(w).reduce((a,b)=>a+b,0);
   let roll=Math.random()*total;
   for(const[r,wt]of Object.entries(w)){roll-=wt;if(roll<=0)return r;}
@@ -1523,11 +1553,11 @@ async function loadLeaderboard(){
     players.forEach((p,i)=>{
       const row=document.createElement('div');
       const rankClass=i===0?'gold':i===1?'silver':i===2?'bronze':'';
-      row.className='lb-row'+(p.id===PLAYER_ID?' lb-me':'');
+      row.className='lb-row'+(p.id===PLAYER_ID?' lb-me':'')+(p.isVip?' lb-vip':'');
       row.innerHTML=`
         <div class="lb-rank ${rankClass}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)}</div>
-        <div class="lb-avatar">${p.avatar||'👤'}</div>
-        <div class="lb-name">${p.name}${p.id===PLAYER_ID?'<span class="lb-you-tag">YOU</span>':''}
+        <div class="lb-avatar" style="${p.isVip?'border-color:var(--gold)':''}">${p.avatar||'👤'}</div>
+        <div class="lb-name">${p.isVip?'⭐ ':''}${p.name}${p.id===PLAYER_ID?'<span class="lb-you-tag">YOU</span>':''}${p.isVip?'<span class="vip-tag">VIP</span>':''}
           <small>Lv ${p.level||1} &nbsp;•&nbsp; ${fmt(p.cps||0)} CPS</small></div>
         <div class="lb-prestige">♻️ ${p.prestige} <span>rebirths</span></div>`;
       list.appendChild(row);
@@ -1700,6 +1730,8 @@ async function loadAdminPlayers(){
       const isOnline=(now-(p.lastSeen||0))<900000; // 15 min
       if(isOnline)onlineCount++;
       const isBanned=await fbGet('banned/'+p.id);
+      const isVip=await fbGet('vip/'+p.id);
+      p.isVip=!!isVip;
       const isAdminPlayer=p.id===PLAYER_ID;
       
       const row=document.createElement('div');
@@ -1709,15 +1741,21 @@ async function loadAdminPlayers(){
         <div class="apr-info">
           <div class="apr-name">
             ${isAdminPlayer?'<span class="admin-crown">👑</span> ':''}
+            ${p.isVip?'⭐ ':''}
             ${p.name}
             ${isBanned?'<span class="banned-tag">BANNED</span>':''}
+            ${p.isVip?'<span class="vip-tag">VIP</span>':''}
           </div>
           <div class="apr-meta">
             Rebirth: ${p.prestige||0} · Level: ${p.level||1} · 
             ${isOnline?'<span style="color:var(--green)">● Онлайн</span>':'<span style="color:var(--muted)">Offline '+timeAgo(p.lastSeen||0)+'</span>'}
           </div>
         </div>
-        ${!isAdminPlayer?`<div class="apr-actions">
+      ${!isAdminPlayer?`<div class="apr-actions">
+          ${p.isVip
+            ?`<button class="apr-btn apr-btn-unvip" onclick="adminUnVip('${p.id}','${p.name}')">-VIP</button>`
+            :`<button class="apr-btn apr-btn-vip" onclick="adminGiveVip('${p.id}','${p.name}')">⭐ VIP</button>`
+          }
           ${isBanned
             ?`<button class="apr-btn apr-btn-unban" onclick="adminUnban('${p.id}')">Разбани</button>`
             :`<button class="apr-btn apr-btn-ban" onclick="adminBan('${p.id}','${p.name}')">Бани</button>`
@@ -1731,6 +1769,18 @@ async function loadAdminPlayers(){
   }catch(e){
     list.innerHTML='<div style="color:var(--red);font-size:.65rem">Грешка при зареждане.</div>';
   }
+}
+
+async function adminGiveVip(playerId, playerName){
+  await fbSet('vip/'+playerId, {by:PLAYER_NAME, at:Date.now(), name:playerName});
+  toast('⭐ '+playerName+' получи VIP!');
+  loadAdminPlayers();
+}
+
+async function adminUnVip(playerId, playerName){
+  await fbDel('vip/'+playerId);
+  toast('VIP премахнат от '+playerName);
+  loadAdminPlayers();
 }
 
 async function adminBan(playerId, playerName){
